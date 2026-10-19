@@ -256,7 +256,11 @@ export function apply(ctx, config) {
       override: hasOverride ? requested : null,
       effective: Number.isInteger(effective) ? effective : null,
       maxTokens: Number.isInteger(effective) ? clampCompletion(undefined, effective) : null,
-      presets: hasBase ? settings.presets.filter((value) => value < base) : settings.presets.slice(),
+      // The catalog base stays selectable (it is how a user returns to the full
+      // window without clearing the override), so keep `<= base`.
+      presets: hasBase
+        ? settings.presets.filter((value) => value <= base && value >= settings.minimumWindow)
+        : settings.presets.slice(),
       minimumWindow: settings.minimumWindow,
       completionRatio: settings.completionRatio,
     };
@@ -348,12 +352,19 @@ export function apply(ctx, config) {
         minimumWindow: settings.minimumWindow,
       });
     }
-    if (Number.isInteger(base) && requested >= base) {
+    if (Number.isInteger(base) && requested > base) {
       return writeJson(res, 400, {
         ok: false,
-        error: 'window must be below the model default',
+        error: 'window must not exceed the model default',
         base,
       });
+    }
+    // Selecting the catalog window clears the override instead of pinning an
+    // equal value, so the session stays "default" if the catalog later grows.
+    if (Number.isInteger(base) && requested === base) {
+      overrides.delete(sessionId);
+      resolved.delete(sessionId);
+      return writeJson(res, 200, describe(sessionId, base, undefined));
     }
     overrides.set(sessionId, requested);
     resolved.delete(sessionId);

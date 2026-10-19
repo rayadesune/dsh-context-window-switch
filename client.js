@@ -1,13 +1,27 @@
 /**
  * dsh-context-window-picker — Client half.
  *
- * Shadows the shipped model label (`conversation.input.model.label`) at a
- * negative priority, so the model popup's detail panel can carry a context
- * window control right next to the shipped "Reasoning effort" row. The control
- * talks to the host half over the loopback JSON API it registers
- * (`/dsh-context-window-picker/api/{state,set}`); the choice is stored per
- * session on the host, so a new session starts at the Profile default again.
+ * Adds a standalone 「上下文窗口」 row to the shipped model popup's root pane,
+ * directly below 「模型」/「推理等级」.
+ *
+ * The shipped `ModelSelect` (which owns the `conversation.input.model` seat)
+ * renders its root pane itself, so there is no slot for an extra row. Instead of
+ * replacing that seat — which would mean re-implementing model search, grouping,
+ * keyboard navigation and the selection round-trip — this half keeps the seat
+ * untouched and mounts one extra row next to the shipped ones:
+ *
+ *  - The row is rendered through `conversation.input.model.label` (placement
+ *    `menu`), which the shipped popup renders once its model directory settles.
+ *  - A hidden anchor node walks up the DOM to the element that owns the shipped
+ *    `role="menuitem"` cells, and a React portal appends the row after the last
+ *    cell. Because the row lives INSIDE that element, the popup's own
+ *    outside-click and blur handlers treat it as part of the menu: clicking the
+ *    row and its option list does not dismiss the popup mid-click.
+ *  - Selecting a size posts to the host half over the loopback JSON API; the
+ *    override is stored per session, so a new session starts at the Profile
+ *    default again.
  */
+
 window.__ModuleLoader__.load({
   id: 'dsh-context-window-picker',
   factory(require) {
@@ -19,61 +33,93 @@ window.__ModuleLoader__.load({
     const SLOT = 'conversation.input.model.label';
     const API_BASE = 'dsh-context-window-picker/api';
     const CSS_MARKER = 'dsh-context-window-picker';
-    const POPOVER_GAP = 6;
-    const VIEWPORT_MARGIN = 8;
+    const MENU_LOOKUP_DEPTH = 12;
+    const PANEL_MARGIN = 8;
 
     const zh = {
-      'chip.label': '上下文',
-      'chip.aria': '切换本会话上下文窗口',
-      'menu.title': '上下文窗口',
-      'menu.subtitle': '仅本会话生效',
-      'menu.default': '默认（跟随模型）',
-      'menu.loading': '读取中…',
-      'menu.error': '无法读取当前上下文窗口',
-      'menu.note': '只对当前会话生效；新会话自动恢复 Profile 默认值。较小的窗口会同时收紧单次输出上限。',
-      'menu.tokensSuffix': 'tokens',
+      'row.label': '上下文窗口',
+      'row.aria': '上下文窗口，当前 {value}，点击切换（仅本会话）',
+      'row.pending': '读取中',
+      'row.unknown': '默认',
+      'panel.title': '上下文窗口',
+      'panel.subtitle': '仅本会话',
+      'option.default': '默认（跟随模型）',
+      'option.tokens': '{value} tokens',
+      'panel.note': '只对当前会话生效，新建会话自动恢复 Profile 默认值；较小的窗口会同时收紧单次输出上限。',
+      'panel.loading': '读取中…',
+      'panel.empty': '当前模型没有更小的可用档位。',
+      'panel.error': '无法读取当前上下文窗口',
+      'panel.failed': '切换失败',
     };
     const en = {
-      'chip.label': 'Context',
-      'chip.aria': 'Change this session context window',
-      'menu.title': 'Context window',
-      'menu.subtitle': 'This session only',
-      'menu.default': 'Default (follows model)',
-      'menu.loading': 'Loading…',
-      'menu.error': 'Could not read the current context window',
-      'menu.note': 'Applies to this session only; a new session returns to the Profile default. A smaller window also tightens the per-request output cap.',
-      'menu.tokensSuffix': 'tokens',
+      'row.label': 'Context window',
+      'row.aria': 'Context window, currently {value}, click to change (this session only)',
+      'row.pending': 'Loading',
+      'row.unknown': 'Default',
+      'panel.title': 'Context window',
+      'panel.subtitle': 'This session only',
+      'option.default': 'Default (follows the model)',
+      'option.tokens': '{value} tokens',
+      'panel.note':
+        'Applies to this session only; a new session returns to the Profile default. A smaller window also tightens the per-request output cap.',
+      'panel.loading': 'Loading…',
+      'panel.empty': 'No smaller size is available for the current model.',
+      'panel.error': 'Could not read the current context window',
+      'panel.failed': 'Could not change the context window',
     };
 
     const CSS = `
-.dcwp_name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dcwp_suffix{color:var(--dsw-alias-label-caption);font-weight:400}
-.dcwp_cell{display:flex;align-items:center;gap:8px;min-width:0;width:100%}
-.dcwp_chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;white-space:nowrap}
-.dcwp_chip:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dcwp_chip[data-override="true"]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
-.dcwp_chip:focus-visible{outline:2px solid var(--dsw-focus-ring-color);outline-offset:1px}
-.dcwp_popover{position:fixed;z-index:1200;display:flex;flex-direction:column;gap:2px;min-width:240px;max-width:min(360px,calc(100vw - 24px));padding:6px;border-radius:var(--dsw-radius-md);border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-overlay);box-shadow:var(--dsw-elevation-prominent)}
-.dcwp_header{display:flex;align-items:baseline;gap:6px;padding:4px 8px 6px}
+.dcwp_hidden{display:block;position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;clip-path:inset(50%)}
+.dcwp_rowSlot{display:block;width:100%;position:relative}
+.dcwp_row{box-sizing:border-box;border-radius:var(--dsw-radius-md);width:auto;min-width:100%;height:34px;color:var(--dsw-alias-label-primary);cursor:pointer;text-align:left;background:0 0;border:none;outline:none;align-items:center;gap:6px;padding:0 8px;font-family:inherit;font-size:13px;line-height:20px;display:flex}
+.dcwp_row:hover,.dcwp_row:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
+.dcwp_rowLabel{white-space:nowrap;flex:none}
+.dcwp_rowValue{text-overflow:ellipsis;white-space:nowrap;text-align:right;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;overflow:hidden}
+.dcwp_rowValue[data-override="true"]{color:var(--dsw-alias-brand-primary)}
+.dcwp_rowChevron{width:12px;height:12px;color:var(--dsw-alias-menu-icon);flex:none}
+.dcwp_panel{position:fixed;z-index:1300;display:flex;flex-direction:column;gap:1px;box-sizing:border-box;overflow:hidden;padding:4px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-overlay);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-primary)}
+.dcwp_head{display:flex;align-items:baseline;gap:6px;padding:4px 8px 6px}
 .dcwp_title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}
-.dcwp_subtitle{font-size:11px;color:var(--dsw-alias-label-caption)}
-.dcwp_option{display:flex;align-items:center;justify-content:space-between;gap:12px;height:32px;padding:0 8px;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;text-align:left;cursor:pointer}
-.dcwp_option:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dcwp_option[data-active="true"]{color:var(--dsw-alias-brand-primary)}
+.dcwp_sub{font-size:11px;color:var(--dsw-alias-label-caption)}
+.dcwp_list{display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.dcwp_option{box-sizing:border-box;border-radius:var(--dsw-radius-md);width:auto;min-width:100%;min-height:34px;color:inherit;text-align:left;cursor:pointer;background:0 0;border:none;outline:none;align-items:center;gap:6px;padding:5px 7px;font-family:inherit;display:flex}
+.dcwp_option:hover,.dcwp_option:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
 .dcwp_option[data-busy="true"]{opacity:.55;pointer-events:none}
-.dcwp_optionLabel{display:inline-flex;align-items:center;gap:6px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dcwp_check{width:12px;height:12px;flex:none}
-.dcwp_optionMeta{font-size:12px;color:var(--dsw-alias-label-caption);white-space:nowrap}
-.dcwp_note{margin-top:4px;padding:6px 8px 2px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;line-height:1.5;color:var(--dsw-alias-label-caption)}
-.dcwp_error{padding:4px 8px;font-size:11px;color:var(--dsw-alias-state-error-primary)}
+.dcwp_optionName{text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:400;line-height:18px;overflow:hidden;flex:1;min-width:0}
+.dcwp_check{color:var(--dsw-alias-label-primary);flex:0 0 14px;display:grid;place-items:center}
+.dcwp_check svg{width:14px;height:14px}
+.dcwp_note{margin:2px 4px 2px;padding-top:6px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;line-height:16px;color:var(--dsw-alias-label-caption)}
+.dcwp_error{padding:2px 8px 4px;font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary)}
+.dcwp_status{padding:6px 8px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
 `;
+
+    const CHECK_PATH =
+      'M2.6 7.3 5.4 10.1 11.4 4.1';
+    const CHEVRON_PATH = 'M4.3 2.3 8.9 7 4.3 11.7';
+
+    function icon(path, className) {
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 14 14',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.5,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          className,
+          'aria-hidden': 'true',
+        },
+        h('path', { d: path }),
+      );
+    }
 
     function formatTokens(value) {
       if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return '';
       if (value >= 1048576 && value % 1048576 === 0) return `${value / 1048576}M`;
       if (value >= 1024) {
         const kilo = value / 1024;
-        return `${Number.isInteger(kilo) ? kilo : kilo.toFixed(1)}K`;
+        return Number.isInteger(kilo) ? `${kilo}K` : `${kilo.toFixed(1)}K`;
       }
       return String(value);
     }
@@ -108,118 +154,172 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function ContextWindowLabel(props) {
-      // `props.t` may be a fresh closure on every render; keep it in a ref so the
-      // fetch effect below never re-runs just because the translator identity moved.
-      const translateRef = React.useRef(props.t);
-      translateRef.current = props.t;
-      const translate = React.useCallback((key) => {
-        const bound = translateRef.current;
-        return typeof bound === 'function' ? bound(key) : key;
-      }, []);
+    /**
+     * Climb from the hidden anchor to the element that owns the shipped
+     * `role="menuitem"` cells, i.e. the root pane container of the model popup.
+     * Returns `null` outside the popup so the row simply does not mount.
+     */
+    function findRowContainer(node) {
+      let element = node;
+      for (let depth = 0; depth < MENU_LOOKUP_DEPTH; depth += 1) {
+        element = element?.parentElement;
+        if (element === null || element === undefined || element === document.body) return null;
+        if (element.querySelector(':scope > button[role="menuitem"]') !== null) return element;
+      }
+      return null;
+    }
+
+    function resolveSessionId(props, ctx) {
+      if (typeof props.sessionId === 'string' && props.sessionId !== '') return props.sessionId;
+      try {
+        const uiSession = ctx.get('uiSession');
+        const binding = uiSession?.current?.getSnapshot?.();
+        if (typeof binding?.key === 'string' && binding.key !== '') return binding.key;
+      } catch {
+        /* the session service is optional for this row */
+      }
+      return '';
+    }
+
+    function ContextWindowRow(props) {
+      const translate = React.useCallback(
+        (key, vars) => {
+          const bound = typeof props.t === 'function' ? props.t : undefined;
+          const template = bound === undefined ? key : bound(key);
+          const text = typeof template === 'string' ? template : key;
+          if (vars === undefined) return text;
+          return text.replace(/\{(\w+)\}/g, (match, name) =>
+            Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : match,
+          );
+        },
+        // `t` is memoized per locale revision but its identity can move; the
+        // dictionary lookup is cheap and the component is small.
+        [props.t],
+      );
+
       const placement = props.placement;
       const provider = props.provider;
       const model = props.model;
-      const sessionId = props.sessionId;
-      const providerId = typeof provider?.id === 'string' ? provider.id : '';
-      const modelId = typeof model?.id === 'string' ? model.id : '';
-      const modelName = typeof model?.name === 'string' && model.name !== '' ? model.name : modelId;
-      const inspectable = placement === 'menu' || placement === 'trigger';
-      const interactive = placement === 'menu';
+      const ctx = props.ctx;
 
+      const anchorRef = React.useRef(null);
+      const slotRef = React.useRef(null);
+      const [host, setHost] = React.useState(null);
       const [state, setState] = React.useState(null);
       const [open, setOpen] = React.useState(false);
       const [busy, setBusy] = React.useState(false);
       const [error, setError] = React.useState(null);
-      const [position, setPosition] = React.useState(null);
-      const anchorRef = React.useRef(null);
-      const popoverRef = React.useRef(null);
+      const [panelBox, setPanelBox] = React.useState(null);
 
-      const load = React.useCallback(
-        (signal) => {
-          if (!inspectable || sessionId === '' || providerId === '') return;
-          const url = apiUrl('state', { sessionId, provider: providerId, model: modelId });
-          fetch(url, { credentials: 'same-origin', headers: { accept: 'application/json' }, signal })
-            .then((response) => (response.ok ? readJson(response) : Promise.reject(new Error(`HTTP ${response.status}`))))
-            .then((body) => {
-              if (signal.aborted) return;
-              if (body?.ok === true) {
-                setState(body);
-                setError(null);
-              } else {
-                setError(translate('menu.error'));
-              }
-            })
-            .catch((cause) => {
-              if (signal.aborted) return;
-              if (cause?.name === 'AbortError') return;
-              setError(translate('menu.error'));
-            });
-        },
-        [inspectable, sessionId, providerId, modelId, translate],
-      );
+      const sessionId = resolveSessionId(props, ctx);
+      const providerId = typeof provider?.id === 'string' ? provider.id : '';
+      const modelId = typeof model?.id === 'string' ? model.id : '';
+      const modelName = typeof model?.name === 'string' && model.name !== '' ? model.name : modelId;
 
-      React.useEffect(() => {
-        if (!inspectable) return undefined;
-        const controller = new AbortController();
-        load(controller.signal);
-        return () => controller.abort();
-      }, [inspectable, load]);
+      // ------------------------------------------------------------ mounting
 
-      React.useEffect(() => {
-        if (!open) {
-          setPosition(null);
-          return undefined;
-        }
-        const closeOutside = (event) => {
-          const target = event.target;
-          const popover = popoverRef.current;
-          const anchor = anchorRef.current;
-          if (popover !== null && popover.contains(target)) return;
-          if (anchor !== null && anchor.contains(target)) return;
-          setOpen(false);
+      React.useLayoutEffect(() => {
+        if (placement !== 'menu') return undefined;
+        const anchor = anchorRef.current;
+        if (anchor === null || anchor === undefined) return undefined;
+        const container = findRowContainer(anchor);
+        if (container === null) return undefined;
+        const cells = [...container.querySelectorAll(':scope > button[role="menuitem"]')];
+        const slot = document.createElement('div');
+        slot.className = 'dcwp_rowSlot';
+        const last = cells.length === 0 ? null : cells[cells.length - 1];
+        if (last === null) container.appendChild(slot);
+        else last.after(slot);
+        slotRef.current = slot;
+        setHost(slot);
+        return () => {
+          slot.remove();
+          slotRef.current = null;
+          setHost(null);
         };
+      }, [placement]);
+
+      // --------------------------------------------------------------- state
+
+      const loadSignal = React.useRef(null);
+      const load = React.useCallback(() => {
+        if (sessionId === '' || providerId === '') return;
+        loadSignal.current?.abort();
+        const controller = new AbortController();
+        loadSignal.current = controller;
+        const url = apiUrl('state', { sessionId, provider: providerId, model: modelId });
+        fetch(url, { credentials: 'same-origin', headers: { accept: 'application/json' }, signal: controller.signal })
+          .then((response) =>
+            response.ok ? readJson(response) : Promise.reject(new Error(`HTTP ${response.status}`)),
+          )
+          .then((body) => {
+            if (controller.signal.aborted) return;
+            if (body?.ok !== true) {
+              setError(translate('panel.error'));
+              return;
+            }
+            setState(body);
+            setError(null);
+          })
+          .catch((cause) => {
+            if (controller.signal.aborted || cause?.name === 'AbortError') return;
+            setError(translate('panel.error'));
+          });
+      }, [sessionId, providerId, modelId, translate]);
+
+      React.useEffect(() => {
+        if (host === null) return undefined;
+        load();
+        return () => loadSignal.current?.abort();
+      }, [host, load]);
+
+      // ------------------------------------------------------------- picking
+
+      const measure = React.useCallback(() => {
+        const slot = slotRef.current;
+        if (slot === null) return undefined;
+        const menu = slot.parentElement;
+        if (menu === null) return undefined;
+        const box = menu.getBoundingClientRect();
+        const width = Math.max(200, Math.min(box.width, window.innerWidth - 2 * PANEL_MARGIN));
+        const left = Math.min(Math.max(PANEL_MARGIN, box.left), window.innerWidth - width - PANEL_MARGIN);
+        const top = Math.min(Math.max(PANEL_MARGIN, box.top), Math.max(PANEL_MARGIN, window.innerHeight - 240));
+        return {
+          left: Math.round(left),
+          top: Math.round(top),
+          width: Math.round(width),
+          maxHeight: Math.round(Math.max(160, window.innerHeight - top - PANEL_MARGIN)),
+        };
+      }, []);
+
+      React.useLayoutEffect(() => {
+        if (!open) {
+          setPanelBox(null);
+          return;
+        }
+        setPanelBox(measure() ?? null);
+      }, [open, measure, state]);
+
+      React.useEffect(() => {
+        if (!open) return undefined;
         const closeOnEscape = (event) => {
           if (event.key !== 'Escape') return;
           event.preventDefault();
           event.stopPropagation();
           setOpen(false);
         };
-        const closeOnViewportChange = () => setOpen(false);
-        document.addEventListener('mousedown', closeOutside, true);
+        const recompute = () => setPanelBox(measure() ?? null);
         document.addEventListener('keydown', closeOnEscape, true);
-        window.addEventListener('resize', closeOnViewportChange);
-        window.addEventListener('scroll', closeOnViewportChange, true);
+        window.addEventListener('resize', recompute);
         return () => {
-          document.removeEventListener('mousedown', closeOutside, true);
           document.removeEventListener('keydown', closeOnEscape, true);
-          window.removeEventListener('resize', closeOnViewportChange);
-          window.removeEventListener('scroll', closeOnViewportChange, true);
+          window.removeEventListener('resize', recompute);
         };
-      }, [open]);
-
-      React.useLayoutEffect(() => {
-        if (!open) return;
-        const anchor = anchorRef.current;
-        const popover = popoverRef.current;
-        if (anchor === null || popover === null) return;
-        const box = anchor.getBoundingClientRect();
-        const size = popover.getBoundingClientRect();
-        const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - size.width - VIEWPORT_MARGIN);
-        const left = Math.min(Math.max(VIEWPORT_MARGIN, box.left), maxLeft);
-        let top = box.top - size.height - POPOVER_GAP;
-        if (top < VIEWPORT_MARGIN) {
-          top = Math.min(
-            Math.max(VIEWPORT_MARGIN, box.bottom + POPOVER_GAP),
-            Math.max(VIEWPORT_MARGIN, window.innerHeight - size.height - VIEWPORT_MARGIN),
-          );
-        }
-        setPosition({ left: Math.round(left), top: Math.round(top) });
-      }, [open, state, error, busy]);
+      }, [open, measure]);
 
       const choose = React.useCallback(
         async (windowValue) => {
-          if (busy) return;
+          if (busy || sessionId === '') return;
           setBusy(true);
           setError(null);
           try {
@@ -236,63 +336,73 @@ window.__ModuleLoader__.load({
             setState(body);
             setOpen(false);
           } catch (cause) {
-            setError(cause instanceof Error ? cause.message : String(cause));
+            setError(`${translate('panel.failed')}: ${cause instanceof Error ? cause.message : String(cause)}`);
           } finally {
             setBusy(false);
           }
         },
-        [busy, sessionId, providerId, modelId],
+        [busy, sessionId, providerId, modelId, translate],
       );
 
-      if (!inspectable) {
-        return h('span', { className: 'dcwp_name', title: modelName }, modelName);
+      // ------------------------------------------------------------- render
+
+      // This slot occupies the composer's own model-name seat, so every branch
+      // below must still render the catalog name exactly as the shipped UI
+      // did. Only the popup's `menu` placement additionally appends our row.
+      const plainLabel = h('span', null, modelName);
+
+      if (placement !== 'menu') {
+        // Trigger caption and the model list rows: the untouched catalog name.
+        return plainLabel;
       }
 
       const effectiveLabel = formatTokens(state?.effective);
       const hasOverride = typeof state?.override === 'number';
+      const valueText =
+        state === null && error === null
+          ? translate('row.pending')
+          : effectiveLabel === ''
+            ? translate('row.unknown')
+            : effectiveLabel;
 
-      const anchor = h(
-        'span',
+      const row = h(
+        'button',
         {
-          ref: (node) => {
-            anchorRef.current = node;
+          type: 'button',
+          role: 'menuitem',
+          tabIndex: 0,
+          className: 'dcwp_row',
+          'aria-haspopup': 'true',
+          'aria-expanded': open ? 'true' : 'false',
+          'aria-label': translate('row.aria', { value: valueText }),
+          onClick: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen((current) => !current);
           },
-          className: 'dcwp_cell',
-          title: modelName,
+          onMouseDown: (event) => event.stopPropagation(),
         },
-        h('span', { className: 'dcwp_name' }, modelName),
-        interactive
-          ? h(
-              'span',
-              {
-                className: 'dcwp_chip',
-                'data-override': hasOverride ? 'true' : 'false',
-                role: 'button',
-                tabIndex: 0,
-                'aria-haspopup': 'dialog',
-                'aria-expanded': open ? 'true' : 'false',
-                'aria-label': `${translate('chip.aria')} (${effectiveLabel === '' ? '—' : effectiveLabel})`,
-                onClick: (event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setOpen((value) => !value);
-                },
-                onMouseDown: (event) => event.stopPropagation(),
-                onKeyDown: (event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setOpen((value) => !value);
-                },
-              },
-              `${translate('chip.label')} ${effectiveLabel === '' ? '—' : effectiveLabel}`,
-            )
-          : hasOverride && effectiveLabel !== ''
-            ? h('span', { className: 'dcwp_suffix' }, `· ${effectiveLabel}`)
-            : null,
+        h('span', { className: 'dcwp_rowLabel' }, translate('row.label')),
+        h(
+          'span',
+          { className: 'dcwp_rowValue', 'data-override': hasOverride ? 'true' : 'false' },
+          valueText,
+        ),
+        icon(CHEVRON_PATH, 'dcwp_rowChevron'),
       );
 
-      if (!open) return anchor;
+      if (host === null) {
+        return h(
+          'span',
+          {
+            ref: (node) => {
+              anchorRef.current = node;
+            },
+            className: 'dcwp_hidden',
+          },
+          plainLabel,
+        );
+      }
 
       const presets = Array.isArray(state?.presets) ? state.presets : [];
       const isDefault = state?.override === null || state?.override === undefined;
@@ -303,7 +413,8 @@ window.__ModuleLoader__.load({
             type: 'button',
             key: 'default',
             className: 'dcwp_option',
-            'data-active': isDefault ? 'true' : 'false',
+            role: 'menuitemradio',
+            'aria-checked': isDefault ? 'true' : 'false',
             'data-busy': busy ? 'true' : 'false',
             onClick: (event) => {
               event.preventDefault();
@@ -312,15 +423,16 @@ window.__ModuleLoader__.load({
             },
             onMouseDown: (event) => event.stopPropagation(),
           },
-          h('span', { className: 'dcwp_optionLabel' }, translate('menu.default')),
+          h('span', { className: 'dcwp_optionName' }, translate('option.default')),
           h(
             'span',
-            { className: 'dcwp_optionMeta' },
-            state?.base === null || state?.base === undefined ? '—' : formatTokens(state.base),
+            { className: 'dcwp_check' },
+            isDefault ? icon(CHECK_PATH, undefined) : null,
           ),
         ),
       ];
       for (const preset of presets) {
+        const selected = state?.override === preset;
         options.push(
           h(
             'button',
@@ -328,7 +440,8 @@ window.__ModuleLoader__.load({
               type: 'button',
               key: String(preset),
               className: 'dcwp_option',
-              'data-active': state?.override === preset ? 'true' : 'false',
+              role: 'menuitemradio',
+              'aria-checked': selected ? 'true' : 'false',
               'data-busy': busy ? 'true' : 'false',
               onClick: (event) => {
                 event.preventDefault();
@@ -337,41 +450,69 @@ window.__ModuleLoader__.load({
               },
               onMouseDown: (event) => event.stopPropagation(),
             },
-            h('span', { className: 'dcwp_optionLabel' }, `${formatTokens(preset)} ${translate('menu.tokensSuffix')}`),
-            state?.override === preset ? h('span', { className: 'dcwp_optionMeta' }, '✓') : null,
+            h('span', { className: 'dcwp_optionName' }, translate('option.tokens', { value: formatTokens(preset) })),
+            h('span', { className: 'dcwp_check' }, selected ? icon(CHECK_PATH, undefined) : null),
           ),
         );
       }
 
-      const popover = h(
-        'div',
-        {
-          ref: (node) => {
-            popoverRef.current = node;
-          },
-          className: 'dcwp_popover',
-          role: 'dialog',
-          'aria-label': translate('menu.title'),
-          style:
-            position === null
-              ? { left: 0, top: 0, visibility: 'hidden' }
-              : { left: `${position.left}px`, top: `${position.top}px` },
-          onMouseDown: (event) => event.stopPropagation(),
-          onClick: (event) => event.stopPropagation(),
-        },
-        h(
-          'div',
-          { className: 'dcwp_header' },
-          h('span', { className: 'dcwp_title' }, translate('menu.title')),
-          h('span', { className: 'dcwp_subtitle' }, translate('menu.subtitle')),
-        ),
-        state === null && error === null ? h('div', { className: 'dcwp_note' }, translate('menu.loading')) : null,
-        error === null ? null : h('div', { className: 'dcwp_error' }, error),
-        ...options,
-        h('div', { className: 'dcwp_note' }, translate('menu.note')),
-      );
+      const panel =
+        !open || host === null
+          ? null
+          : ReactDOM.createPortal(
+              h(
+                'div',
+                {
+                  className: 'dcwp_panel',
+                  role: 'group',
+                  'aria-label': translate('panel.title'),
+                  style:
+                    panelBox === null
+                      ? { left: 0, top: 0, visibility: 'hidden', width: 240 }
+                      : {
+                          left: `${panelBox.left}px`,
+                          top: `${panelBox.top}px`,
+                          width: `${panelBox.width}px`,
+                          maxHeight: `${panelBox.maxHeight}px`,
+                        },
+                  onMouseDown: (event) => event.stopPropagation(),
+                  onClick: (event) => event.stopPropagation(),
+                },
+                h(
+                  'div',
+                  { className: 'dcwp_head' },
+                  h('span', { className: 'dcwp_title' }, translate('panel.title')),
+                  h('span', { className: 'dcwp_sub' }, translate('panel.subtitle')),
+                ),
+                state === null && error === null
+                  ? h('div', { className: 'dcwp_status' }, translate('panel.loading'))
+                  : null,
+                error === null ? null : h('div', { className: 'dcwp_error' }, error),
+                presets.length === 0 && state !== null
+                  ? h('div', { className: 'dcwp_status' }, translate('panel.empty'))
+                  : h('div', { className: 'dcwp_list' }, ...options),
+                h('div', { className: 'dcwp_note' }, translate('panel.note')),
+              ),
+              host,
+            );
 
-      return h(React.Fragment, null, anchor, ReactDOM.createPortal(popover, document.body));
+      return h(
+        React.Fragment,
+        null,
+        h(
+          'span',
+          {
+            ref: (node) => {
+              anchorRef.current = node;
+            },
+            className: 'dcwp_hidden',
+            'aria-hidden': 'true',
+          },
+          plainLabel,
+        ),
+        ReactDOM.createPortal(row, host),
+        panel,
+      );
     }
 
     return {
@@ -386,16 +527,12 @@ window.__ModuleLoader__.load({
           return () => style.remove();
         }, 'context-window-picker: styles');
 
-        ctx.effect(
-          () => ctx.locale.register(NS, { zh, en }),
-          'context-window-picker: dictionaries',
-        );
+        ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'context-window-picker: dictionaries');
+
+        const RowWithContext = (props) => h(ContextWindowRow, { ...props, ctx });
 
         ctx.slots.inject(SLOT, () =>
-          ctx.slots.register(
-            { name: SLOT, priority: -1000, locale: NS },
-            ContextWindowLabel,
-          ),
+          ctx.slots.register({ name: SLOT, priority: -1000, locale: NS }, RowWithContext),
         );
       },
     };
