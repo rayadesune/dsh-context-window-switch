@@ -5,6 +5,10 @@
 
 对标 WorkBuddy：模型详情面板中「思考强度」+「上下文窗口」两个配置项并列，会话级临时生效。
 
+![模型弹窗中的上下文窗口行](screenshots/model-popup.png)
+
+![展开后的档位列表](screenshots/picker-open.png)
+
 ## 安装
 
 ```bash
