@@ -1,0 +1,60 @@
+{
+  "name": "dsh-context-window-picker",
+  "version": "0.1.0",
+  "description": "Session-scoped context window selector for the DSH model picker",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "context-window",
+    "model-selector"
+  ],
+  "author": "luyiheng1111",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luyiheng1111/dsh-context-window-picker.git"
+  },
+  "homepage": "https://github.com/luyiheng1111/dsh-context-window-picker#readme",
+  "bugs": {
+    "url": "https://github.com/luyiheng1111/dsh-context-window-picker/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-model-selection",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    },
+    "manifestVersion": 1
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "license": "MIT"
+}

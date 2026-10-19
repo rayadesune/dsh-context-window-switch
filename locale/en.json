@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Context Window Picker",
+    "description": "Temporarily change this session's context window from the model popup; a new session returns to the Profile default."
+  }
+}

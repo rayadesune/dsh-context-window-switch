@@ -1,0 +1,18 @@
+# Bundle patch for dsh-context-window-picker.
+#
+# The host half owns the session-scoped context-window override: it intercepts
+# the `llm` service (prepareCall / resolveModelInfo) plus Session#requestHeader so
+# the override reaches the request `context`, the `request/context` session event
+# and compaction, and it serves the tiny JSON API the Client half calls.
+- insert:
+    - id: context-window-picker
+      name: 'dsh-context-window-picker'
+      config:
+        presets:
+          - 131072
+          - 262144
+          - 524288
+          - 1048576
+        completionRatio: 0.25
+        headroomTokens: 65536
+        minimumWindow: 131072
