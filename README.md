@@ -1,9 +1,9 @@
 # 上下文窗口选择器 · dsh-context-window-picker
 
 在 DSH 的**模型选择弹窗**里，为**当前会话**临时切换上下文窗口大小（`contextWindow`），
-与思考强度（推理等级）并列；新建会话自动恢复 Profile 默认值。
+和「模型」「推理等级」并列成独立一行；新建会话自动恢复 Profile 默认值。
 
-对标 WorkBuddy：模型详情面板同时展示「推理等级」+「上下文窗口」，会话级临时生效。
+对标 WorkBuddy：模型详情面板中「思考强度」+「上下文窗口」两个配置项并列，会话级临时生效。
 
 ## 安装
 
@@ -18,19 +18,23 @@ git clone https://github.com/luyiheng1111/dsh-context-window-picker.git
 dsh plugin --profile desktop add /path/to/dsh-context-window-picker
 ```
 
-安装后重启 DSH 即可。插件本身没有构建步骤、没有运行时依赖（React 由宿主提供），
+安装后重启 DSH 即可。插件没有构建步骤、没有运行时依赖（React 由宿主提供），
 默认走 bundle patch 里的 `presets`/`completionRatio` 等默认值，无需任何配置。
 
 ## 交互
 
 1. 打开输入框右侧的模型选择弹窗（或 `/model`）。
-2. 详情面板里模型名右侧出现「上下文 1M」胶囊按钮（显示**当前生效**窗口；有覆盖时变为品牌色高亮），
-   点击展开窗口选项：
+2. 弹窗面板里「模型」「推理等级」下方多出独立的一行 —— **上下文窗口  256K  ›**，
+   右侧显示的是**当前生效**窗口；被本会话覆盖时该数字变为品牌色高亮。
+3. 点这一行展开档位列表，选一个即可即时生效：
    - 默认（跟随模型）
-   - 128K / 256K / 512K（只列出**小于**模型默认窗口的档位）
-3. 选择后立即写入当前会话；再发一条消息，`request/context` 事件中的上下文窗口即为新值。
-   输入框上的模型按钮也会在覆盖生效时补一个 `· 256K` 之类的后缀。
-4. 新建会话不携带该选择，自动回到适配器目录里的默认窗口。
+   - 128K / 256K / 512K 等（只列出不超过当前模型默认窗口的档位；
+     选中与默认相同的档位等同于回到「默认」）
+4. 选择后立即写入当前会话，再发一条消息，`request/context` 事件里的上下文窗口即为新值。
+5. 新建会话不携带该选择，自动回到适配器目录里的默认窗口。
+
+因为这一行是渲染在弹窗面板**内部**的，点击它和它的档位列表都不会把弹窗关掉，
+可以像原生配置项一样反复切换。
 
 ## 为什么不是「改 Profile 配置」
 
@@ -48,18 +52,20 @@ dsh plugin --profile desktop add /path/to/dsh-context-window-picker
     所以压缩压力判断同样使用会话覆盖值。
 - `Session#requestHeader` 在覆盖生效期间夹紧 `config.maxTokens`，
   避免压缩策略拿旧的 256K 完成预留去比新的小窗口而直接抛错。
-- **客户端半** 以 `priority: -1000` 影子注册已发布的 `conversation.input.model.label` 槽位
-  （`slots.inject` 保证在槽位声明后注册），菜单面板里渲染胶囊按钮，
-  下拉层用 `ReactDOM.createPortal` 挂到 `document.body`（弹窗本身 `overflow:hidden`）。
+- **客户端半** 不替换原生模型选择组件，而是通过 `conversation.input.model.label` 槽位
+  在弹窗里追加一行：用一个隐藏锚点向上找到持有 `role="menuitem"` 单元格的面板容器，
+  再用 `ReactDOM.createPortal` 把这一行插到最后一个单元格之后。
+  这样这一行天然属于弹窗内部，原来的「点击外部即关闭」判定不会在点击中途把弹窗卸掉。
+  该槽位同时负责输入框上的模型名，所以其余放置处（`trigger` / `option`）仍原样渲染模型名。
 - 客户端与宿主之间走本机回环 JSON 接口：
-  `POST /dsh-context-window-picker/api/{state,set}`、`GET .../health`，
+  `GET /dsh-context-window-picker/api/{state,health}`、`POST /dsh-context-window-picker/api/set`，
   请求校验 Host 为回环地址、拒绝 `sec-fetch-site: cross-site` 与非同源 `Origin`。
 
 ## 配置（bundle patch 里可改）
 
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
-| `presets` | `[131072, 262144, 524288, 1048576]` | 候选窗口（只显示小于模型默认值的） |
+| `presets` | `[131072, 262144, 524288, 1048576]` | 候选窗口（只显示不超过模型默认值的） |
 | `completionRatio` | `0.25` | 单次输出上限 ≤ 窗口 × 该比例 |
 | `headroomTokens` | `65536` | 与压缩策略的 headroom 对齐，保证压缩不会因预留不足报错 |
 | `minimumWindow` | `131072` | 最小可选窗口；低于它的模型只显示「默认」 |
@@ -67,16 +73,18 @@ dsh plugin --profile desktop add /path/to/dsh-context-window-picker
 ## 文件
 
 - `index.js` — 宿主插件（llm 拦截、按会话覆盖、回环 API）
-- `client.js` — 客户端 UI（模型弹窗内的上下文窗口控件）
+- `client.js` — 客户端 UI（模型弹窗内的上下文窗口行与档位面板）
 - `cordis.patch.yml` — bundle patch，插入宿主插件行
-- `locale/{zh,en}.json` — 插件市场展示元数据
+- `locale/{zh,en}.json` — 插件管理器 / 市场展示元数据
+- `icon.svg` — 插件图标
 
 ## 已验证
 
 - 宿主：`GET /dsh-context-window-picker/api/health` 返回 patch 计数；把某会话设为 262144 后，
   下一个请求的 `request/context` 事件记录 `contextWindow: 262144`，`request/header.maxTokens`
   从 256000 收紧到 65536（压缩压力判断不再抛 `leaving no message budget`）。
-- 客户端：刷新页面后模型弹窗内出现胶囊与下拉，选择即时生效；点「默认」回到 1048576。
+- 客户端：刷新页面后，模型弹窗内「推理等级」下方出现独立的「上下文窗口」行，
+  模型名显示正常；点开可切换档位，切换后该行数字即时更新。
 
 > 修改 `index.js` 需要重启 DSH 才会重新加载宿主半边；只改 `client.js` 刷新页面即可。
 
@@ -97,11 +105,12 @@ dsh plugin --profile desktop add /path/to/dsh-context-window-picker
 
 ## 已知限制
 
-- 需要先打开模型选择弹窗（`placement: 'menu'`）或看输入框按钮（`'trigger'`）才会加载状态。
-- 候选档位只显示**小于**模型基准窗口的值（放大窗口属于模型/Profile 层面的能力）。
+- 候选档位只显示**不超过**模型基准窗口的值（放大窗口属于模型/Profile 层面的能力）。
 - 覆盖只影响之后发出的请求；正在执行的 step 保持它启动时的窗口。
 - 客户端半边影子注册了已发布的 `conversation.input.model.label` 槽位
-  （`replaceRisk: shadows-shipped-ui`），若官方以后在该槽位加交互，插件需相应调整。
+  （`replaceRisk: shadows-shipped-ui`），若官方以后改动模型弹窗的面板结构，
+  插件需要相应调整行容器的定位方式。
+- 输入框上的模型按钮不再追加窗口后缀；窗口只在弹窗内展示。
 
 ## 许可
 
