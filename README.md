@@ -1,4 +1,4 @@
-# 上下文窗口选择器 · dsh-context-window-picker
+# 上下文窗口切换器 · dsh-context-window-switch
 
 在 DSH 的**模型选择弹窗**里，为**当前会话**临时切换上下文窗口大小（`contextWindow`），
 和「模型」「推理等级」并列成独立一行；新建会话自动恢复 Profile 默认值。
@@ -9,21 +9,31 @@
 
 ![展开后的档位列表](screenshots/picker-open.png)
 
+## 维护说明
+
+本仓库是 [luyiheng1111/dsh-context-window-picker](https://github.com/luyiheng1111/dsh-context-window-picker)
+的**延续维护版**。原作者发布 v0.1.0 后未再维护（MIT 许可），本仓库自 v0.2.0 起接手开发，
+更名为 `dsh-context-window-switch`（包名、插件 id、API 前缀同步变更），功能与实现保持一致，
+原作者的署名与版权完整保留。
+
 ## 安装
 
 ```bash
-git clone https://github.com/luyiheng1111/dsh-context-window-picker.git
+git clone https://github.com/rayadesune/dsh-context-window-switch.git
 ```
 
 然后在 DSH 的 Plugins 页面里用本地目录安装（Install from path / 本地 bundle）指向刚 clone 的目录，
 或在终端：
 
 ```bash
-dsh plugin --profile desktop add /path/to/dsh-context-window-picker
+dsh plugin --profile desktop add /path/to/dsh-context-window-switch
 ```
 
 安装后重启 DSH 即可。插件没有构建步骤、没有运行时依赖（React 由宿主提供），
 默认走 bundle patch 里的 `presets`/`completionRatio` 等默认值，无需任何配置。
+
+> **注意**：如果之前安装过原版 `dsh-context-window-picker`，请先卸载再装本插件。
+> 两者是不同的插件 id，同时安装会对 `llm` 服务产生双重包装。
 
 ## 交互
 
@@ -62,7 +72,7 @@ dsh plugin --profile desktop add /path/to/dsh-context-window-picker
   这样这一行天然属于弹窗内部，原来的「点击外部即关闭」判定不会在点击中途把弹窗卸掉。
   该槽位同时负责输入框上的模型名，所以其余放置处（`trigger` / `option`）仍原样渲染模型名。
 - 客户端与宿主之间走本机回环 JSON 接口：
-  `GET /dsh-context-window-picker/api/{state,health}`、`POST /dsh-context-window-picker/api/set`，
+  `GET /dsh-context-window-switch/api/{state,health}`、`POST /dsh-context-window-switch/api/set`，
   请求校验 Host 为回环地址、拒绝 `sec-fetch-site: cross-site` 与非同源 `Origin`。
 
 ## 配置（bundle patch 里可改）
@@ -84,7 +94,7 @@ dsh plugin --profile desktop add /path/to/dsh-context-window-picker
 
 ## 已验证
 
-- 宿主：`GET /dsh-context-window-picker/api/health` 返回 patch 计数；把某会话设为 262144 后，
+- 宿主：`GET /dsh-context-window-switch/api/health` 返回 patch 计数；把某会话设为 262144 后，
   下一个请求的 `request/context` 事件记录 `contextWindow: 262144`，`request/header.maxTokens`
   从 256000 收紧到 65536（压缩压力判断不再抛 `leaving no message budget`）。
 - 客户端：刷新页面后，模型弹窗内「推理等级」下方出现独立的「上下文窗口」行，
@@ -100,9 +110,9 @@ dsh plugin --profile desktop add /path/to/dsh-context-window-picker
 
 | 路径 | 方法 | 用途 |
 | --- | --- | --- |
-| `/dsh-context-window-picker/api/state` | GET | 读取当前会话的基准窗口 / 覆盖值 / 候选档位 |
-| `/dsh-context-window-picker/api/set` | POST | 设置或（传 `null`）清除本会话覆盖 |
-| `/dsh-context-window-picker/api/health` | GET | patch 计数与当前配置（诊断用） |
+| `/dsh-context-window-switch/api/state` | GET | 读取当前会话的基准窗口 / 覆盖值 / 候选档位 |
+| `/dsh-context-window-switch/api/set` | POST | 设置或（传 `null`）清除本会话覆盖 |
+| `/dsh-context-window-switch/api/health` | GET | patch 计数与当前配置（诊断用） |
 
 请求会被校验：Host 必须是回环地址或 `webRuntime.trustedHosts` 中的授权域，
 拒绝 `sec-fetch-site: cross-site`，且 `Origin` 必须缺失、为 `dsh-app://app` 或与 Host 同源。
@@ -118,4 +128,5 @@ dsh plugin --profile desktop add /path/to/dsh-context-window-picker
 
 ## 许可
 
-[MIT](LICENSE) © 2026 luyiheng1111
+[MIT](LICENSE) © 2026 [luyiheng1111](https://github.com/luyiheng1111)（原作者）
+© 2026 rayadesune（当前维护者）

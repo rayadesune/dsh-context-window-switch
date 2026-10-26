@@ -1,5 +1,5 @@
 /**
- * dsh-context-window-picker — host half.
+ * dsh-context-window-switch — host half.
  *
  * Gives one session a temporary context-window override without touching the
  * Profile's `llm-pi-ai` / `llm-deepseek` catalog defaults. A new session always
@@ -22,7 +22,7 @@
  * configuration and nothing survives a new session.
  */
 
-const API_PREFIX = '/dsh-context-window-picker/api';
+const API_PREFIX = '/dsh-context-window-switch/api';
 const MAX_REQUEST_BODY = 64 * 1024;
 const MAX_TRACKED_SESSIONS = 512;
 const MIN_COMPLETION_TOKENS = 256;
@@ -30,7 +30,7 @@ const DEFAULT_PRESETS = [131072, 262144, 524288, 1048576];
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_.:@-]{1,200}$/;
 const LOOPBACK_PATTERN = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
-export const name = 'dsh-context-window-picker';
+export const name = 'dsh-context-window-switch';
 
 /** The LLM registry/stream service and the Agent registry (for session attribution). */
 export const inject = ['llm', 'agents'];
@@ -187,7 +187,7 @@ export function apply(ctx, config) {
         llmPrototype.resolveModelInfo = originalResolveModelInfo;
       }
     };
-  }, 'context-window-picker: llm service patches');
+  }, 'context-window-switch: llm service patches');
 
   // ------------------------------------------------- request-header clamping
 
@@ -236,7 +236,7 @@ export function apply(ctx, config) {
       }
       headerPatches.clear();
     };
-  }, 'context-window-picker: session header clamp');
+  }, 'context-window-switch: session header clamp');
 
   ctx.on('agent/disposed', (payload) => {
     const sessionId = payload?.agent?.session?.id;
@@ -407,7 +407,7 @@ export function apply(ctx, config) {
               });
             },
           }),
-        `context-window-picker: route ${path}`,
+        `context-window-switch: route ${path}`,
       );
     }
   });

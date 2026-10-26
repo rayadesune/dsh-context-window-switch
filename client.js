@@ -1,5 +1,5 @@
 /**
- * dsh-context-window-picker — Client half.
+ * dsh-context-window-switch — Client half.
  *
  * Adds a standalone 「上下文窗口」 row to the shipped model popup's root pane,
  * directly below 「模型」/「推理等级」.
@@ -23,16 +23,16 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-context-window-picker',
+  id: 'dsh-context-window-switch',
   factory(require) {
     const React = require('react');
     const ReactDOM = require('react-dom');
     const h = React.createElement;
 
-    const NS = 'context-window-picker';
+    const NS = 'context-window-switch';
     const SLOT = 'conversation.input.model.label';
-    const API_BASE = 'dsh-context-window-picker/api';
-    const CSS_MARKER = 'dsh-context-window-picker';
+    const API_BASE = 'dsh-context-window-switch/api';
+    const CSS_MARKER = 'dsh-context-window-switch';
     const MENU_LOOKUP_DEPTH = 12;
     const PANEL_MARGIN = 8;
 
@@ -525,9 +525,9 @@ window.__ModuleLoader__.load({
           style.textContent = CSS;
           document.head.appendChild(style);
           return () => style.remove();
-        }, 'context-window-picker: styles');
+        }, 'context-window-switch: styles');
 
-        ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'context-window-picker: dictionaries');
+        ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'context-window-switch: dictionaries');
 
         const RowWithContext = (props) => h(ContextWindowRow, { ...props, ctx });
 

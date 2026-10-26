@@ -1,7 +1,7 @@
 {
-  "name": "dsh-context-window-picker",
-  "version": "0.1.0",
-  "description": "Session-scoped context window selector for the DSH model picker",
+  "name": "dsh-context-window-switch",
+  "version": "0.2.0",
+  "description": "Session-scoped context window switcher for the DSH model picker (maintained continuation of dsh-context-window-picker)",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -28,14 +28,17 @@
     "context-window",
     "model-selector"
   ],
-  "author": "luyiheng1111",
+  "author": "rayadesune",
+  "contributors": [
+    "luyiheng1111"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/luyiheng1111/dsh-context-window-picker.git"
+    "url": "git+https://github.com/rayadesune/dsh-context-window-switch.git"
   },
-  "homepage": "https://github.com/luyiheng1111/dsh-context-window-picker#readme",
+  "homepage": "https://github.com/rayadesune/dsh-context-window-switch#readme",
   "bugs": {
-    "url": "https://github.com/luyiheng1111/dsh-context-window-picker/issues"
+    "url": "https://github.com/rayadesune/dsh-context-window-switch/issues"
   },
   "dsh": {
     "bundle": {
